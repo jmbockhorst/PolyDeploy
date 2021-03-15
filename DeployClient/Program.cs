@@ -103,9 +103,11 @@ namespace DeployClient
                 // Inform user of encryption.
                 WriteLine("Starting encryption and upload...");
 
+                TimeSpan interval = TimeSpan.FromSeconds(2);
+                DateTime apiNotFoundAbortTime = DateTime.Now.AddSeconds(Options.InstallationStatusTimeout);
+
                 foreach (string zipFile in zipFiles)
                 {
-
                     using (FileStream fs = new FileStream(zipFile, FileMode.Open))
                     {
                         WriteLine(string.Format("\t{0}", Path.GetFileName(zipFile)));
@@ -115,7 +117,23 @@ namespace DeployClient
                         {
                             Write("uploading...");
 
-                            await API.AddPackageAsync(sessionGuid, es, Path.GetFileName(zipFile));
+                            var success = false;
+
+                            do
+                            {
+                                try
+                                {
+                                    await API.AddPackageAsync(sessionGuid, es, Path.GetFileName(zipFile));
+                                    success = true;
+                                }
+                                catch
+                                {
+                                    // Api is returning a 404 - wait and try again
+                                    System.Threading.Thread.Sleep(interval);
+                                    Write("error...retrying...");
+                                }
+
+                            } while (!success && DateTime.Now < apiNotFoundAbortTime);
                         }
 
                         WriteLine("done.");
@@ -134,10 +152,9 @@ namespace DeployClient
                 (bool installSuccess,  SortedList<string, dynamic> results) = await API.InstallAsync(sessionGuid);
                 if (!installSuccess)
                 {
-                    TimeSpan interval = TimeSpan.FromSeconds(2);
                     Dictionary<string, dynamic> response;
                     var successfullyReachedApi = false;
-                    DateTime apiNotFoundAbortTime = DateTime.Now.AddSeconds(Options.InstallationStatusTimeout);
+                    apiNotFoundAbortTime = DateTime.Now.AddSeconds(Options.InstallationStatusTimeout);
 
                     // Attempt to get the status of the session from the remote api.
                     // This can fail shortly after an installation as the api has not yet been initialised,
